@@ -2,11 +2,11 @@
   ******************************************************************************
   * File Name          : TEST_FPGA.c
   * Description        : FPGA bitstream
-  						 contains the bitstream arrays for the FPGA package 
-  						 containing: Data Buffer, IP Manager and SHA256 IP Core
+  						           contains the bitstream arrays for the FPGA package 
+  						           containing: Data Buffer, IP Manager and SHA256 IP Core
   ******************************************************************************
   *
-  * Copyright � 2016-present Blu5 Group <https://www.blu5group.com>
+  * Copyright(c) 2016-present Blu5 Group <https://www.blu5group.com>
   *
   * This library is free software; you can redistribute it and/or
   * modify it under the terms of the GNU Lesser General Public
@@ -22201,3 +22201,8 @@ const uint8_t __fpga_data[] = {
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
 0x00, 0xA2, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
 0x00, 0x00, 0x00, 0x00, 0xA2 };
+
+
+
+extern uint32_t g_iAlgoSize = 129857;
+extern uint32_t g_iDataSize = 202655;

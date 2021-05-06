@@ -3,7 +3,7 @@
 --  * Description        : Component of the SHA256 IP core
 --  ******************************************************************************
 --  *
---  * Copyright � 2016-present Blu5 Group <https://www.blu5group.com>
+--  * Copyright(c) 2016-present Blu5 Group <https://www.blu5group.com>
 --  *
 --  * This library is free software; you can redistribute it and/or
 --  * modify it under the terms of the GNU Lesser General Public
