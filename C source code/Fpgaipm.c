@@ -33,8 +33,7 @@ SRAM_HandleTypeDef SRAM_WRITE;
 // private members
 static FPGA_IPM_DATA row0;
 static FPGA_IPM_CORE currentCore;
-static FPGA_IPM_BOOLEAN initialized = 0;
-static FPGA_IPM_SEM sem;
+static FPGA_IPM_SEM sem = 0;
 
 
 // private functions
