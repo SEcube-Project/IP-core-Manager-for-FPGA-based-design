@@ -100,7 +100,7 @@ FPGA_IPM_BOOLEAN FPGA_IPM_close (FPGA_IPM_CORE coreID)
 
 static FPGA_IPM_BOOLEAN checkCore (FPGA_IPM_CORE coreID)
 {
-	return coreID == currentCore && sem == 0 && initialized;
+	return coreID == currentCore && sem == 0;
 }
 
 
