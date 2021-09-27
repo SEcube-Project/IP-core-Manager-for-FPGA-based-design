@@ -34,7 +34,7 @@
 // private members
 static FPGA_IPM_DATA row0;
 static FPGA_IPM_CORE currentCore;
-static FPGA_IPM_SEM sem = 0;
+static FPGA_IPM_SEM sem = 1;
 
 
 // private functions

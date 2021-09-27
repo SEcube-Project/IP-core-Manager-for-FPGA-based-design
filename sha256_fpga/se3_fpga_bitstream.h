@@ -23,6 +23,8 @@
   *
   ******************************************************************************
   */
+#ifndef SE3_FPGA_BITSTREAM_H_
+#define SE3_FPGA_BITSTREAM_H_
 
 #include <stdint.h>
 
@@ -22206,3 +22208,5 @@ const uint8_t __fpga_data[] = {
 
 extern uint32_t g_iAlgoSize = 129857;
 extern uint32_t g_iDataSize = 202655;
+
+#endif /* SE3_FPGA_BITSTREAM_H_ */
