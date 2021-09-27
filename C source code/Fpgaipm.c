@@ -24,10 +24,11 @@
   */
 
 #include "Fpgaipm.h"
+#include "fmc.h"
 
 // extern members
-SRAM_HandleTypeDef SRAM_READ;
-SRAM_HandleTypeDef SRAM_WRITE;
+//SRAM_HandleTypeDef SRAM_READ;
+//SRAM_HandleTypeDef SRAM_WRITE;
 
 
 // private members
