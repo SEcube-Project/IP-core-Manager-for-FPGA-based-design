@@ -25,6 +25,7 @@ library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use ieee.numeric_std.all;
 use work.CONSTANTS.all;
+use work.ip_example_states.all;
 
 entity IP_EXAMPLE is
 	port(
@@ -48,28 +49,23 @@ entity IP_EXAMPLE is
 end IP_EXAMPLE;
 
 architecture Behavioral of IP_EXAMPLE is
-
-	type Statetype is	(OFF, 
-						 WAIT_FIRST_OPERAND,
-						 ADDR_FIRST_OPERAND, 
-						 READ_FIRST_OPERAND, 
-						 WAIT_SECOND_OPERAND, 
-						 ADDR_SECOND_OPERAND,
-						 READ_SECOND_OPERAND,
-						 COMPUTE, 
-						 ACK_WAITING, 
-						 WAIT_STATUS_CPU,
-						 WRITE_RESULT,
-						 WRITE_STATUS, 
-						 DONE);
 	
-	signal state : Statetype;
+	signal state : std_logic_vector(OPCODE_SIZE-1 downto 0);
 	signal mode  : std_logic; -- interrupt 1 / polling 0
 	signal in1   : std_logic_vector(DATA_WIDTH-1 downto 0);
 	signal in2   : std_logic_vector(DATA_WIDTH-1 downto 0);
 	signal res   : std_logic_vector(DATA_WIDTH-1 downto 0);
 	
-begin 
+begin
+	--process (clock)
+	--begin
+	--	data_out <= data_in xor opcode&opcode&enable&ack&reset&interrupt_polling;
+	--	buffer_enable <= write_completed;
+	--	address <= std_logic_vector((unsigned(data_in(ADD_WIDTH-1 downto 0)) + 1));
+	--	rw <= read_completed;
+	--	interrupt <= read_completed;
+	--	error <= write_completed;
+	--end process;
 
 	process (clock)
 	begin
@@ -245,7 +241,10 @@ begin
 				else
 					state <= DONE;
 				end if;
-				
+			
+			when others => 
+				error <= '1';
+				state <= OFF;
 			end case;
 		end if;
 	end process;

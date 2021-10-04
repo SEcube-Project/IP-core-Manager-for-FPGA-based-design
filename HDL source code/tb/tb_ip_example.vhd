@@ -24,21 +24,21 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 use work.CONSTANTS.all;
-use work.SHA256_PACKAGE.all;
+use work.ip_example_states.all;
 
 entity FPGA_testbench is
 end FPGA_testbench;
 
 architecture test of FPGA_testbench is 
 
-	-- TIME CONSTANTS (COMING FROM SETTINGS OF SOFTWARE)
+	-- TIME CONSTANTS (COMING FROM SOFTWARE SETTINGS)
 	constant HCLK_PERIOD 		 : time    := 5555 ps; -- 180 MHz
-	constant PRESCALER			 : integer := 3;
+	constant PRESCALER			 : integer := 2;
 	constant FPGA_CLK_PERIOD	 : time    := HCLK_PERIOD*PRESCALER;
 	constant ADDRESS_SETUP_TIME	 : integer := 6;
 	constant DATA_SETUP_TIME	 : integer := 6;	
 		
-	-- CONSTANTS FOR BETTER DEFINING CONTROL WORD TO BE WRITTEN IN ROW_0
+	-- CONSTANTS FOR DEFINING CONTROL WORD BITS TO BE WRITTEN IN ROW_0
 	constant OPCODE_VOID    			    : std_logic_vector(OPCODE_SIZE-1 downto 0) := "000000";
 	constant CONF_OPEN_TRANSACTION_INTMODE  : std_logic_vector(2 downto 0) := "101";
 	constant CONF_CLOSE_TRANSACTION_INTMODE : std_logic_vector(2 downto 0) := "100";
@@ -57,6 +57,9 @@ architecture test of FPGA_testbench is
 	signal nwe		 : std_logic := '1';
 	signal ne1		 : std_logic := '1';
 	signal interrupt : std_logic;
+
+	-- golden result of ip_example
+	signal res, golden_res: std_logic_vector(DATA_WIDTH-1 downto 0);
    
 begin
  
@@ -139,14 +142,17 @@ begin
 			wait for ADDRESS_SETUP_TIME*HCLK_PERIOD;
 			noe <= '0'; 
 			wait for  DATA_SETUP_TIME*HCLK_PERIOD;
+			--wait for HCLK_PERIOD;
 			ne1 <= '1';
 			noe <= '1';
 			result := data;
+			res <= data;
 		end read;
 		
 	begin
 		
 		wait for HCLK_PERIOD*24; -- random number of cc before starting
+		golden_res <= X"FA31" xor X"01F7";
 		--------------------------------------------------------------------------------------------------------------
 		--------------------------------------------------------------------------------------------------------------
 		-- 												TESTBENCH PROGRAMS
@@ -160,169 +166,31 @@ begin
 		--------------------------------------------------------------------------------------------------------------
 		-- TESTBENCH PROGRAM N. 1 - POLLING MODE TESTING (EXAMPLE CORE)
 		--------------------------------------------------------------------------------------------------------------
-		--write("000000", OPCODE_VOID & CONF_OPEN_TRANSACTION_POLMODE & "0000001");
-		--write("000001", x"FA31");
-		--write("000010", x"01F7");
-		--write("111111", (others => '0'));
-		--while result = x"0000" loop
-		--	read("111111");
-		--end loop;
-		--read("000011");
-		--write("000000", OPCODE_VOID & CONF_CLOSE_TRANSACTION_POLMODE & "0000001");
+		write("000000", OFF & CONF_OPEN_TRANSACTION_POLMODE & "0000001");
+		write("000001", x"FA31");
+		write("000010", x"01F7");
+		write("111111", (others => '0'));
+		while result = x"0000" loop
+			read("111111");
+		end loop;
+		read("000011");
+		write("000000", OFF & CONF_CLOSE_TRANSACTION_POLMODE & "0000001");
 		--------------------------------------------------------------------------------------------------------------
 		-- TESTBENCH PROGRAM N. 2 - INTERRUPT MODE TESTING (EXAMPLE CORE)
 		--------------------------------------------------------------------------------------------------------------
-		--write("000000", OPCODE_VOID & CONF_OPEN_TRANSACTION_INTMODE & "0000001");
+		--write("000000", OFF & CONF_OPEN_TRANSACTION_INTMODE & "0000001");
 		--write("000001", x"FA31");
 		--write("000010", x"01F7");
-		--write("000000", OPCODE_VOID & CONF_CLOSE_TRANSACTION_INTMODE & "0000001");
+		--write("000000", OFF & CONF_CLOSE_TRANSACTION_INTMODE & "0000001");
 		--wait until rising_edge(interrupt);
-		--wait until rising_edge(hclk); -- ISR is called syncronously
+		--wait until rising_edge(hclk); -- ISR is called synchronously
 		--read("000000");
-		--write("000000", OPCODE_VOID & CONF_OPEN_TRANSACTION_ACK & "0000001");
+		--write("000000", OFF & CONF_OPEN_TRANSACTION_ACK & "0000001");
 		---- let the core necessary time for writing outputs and then read
 		--wait for 4*HCLK_PERIOD;
 		--read("000011");
-		--write("000000", OPCODE_VOID & CONF_CLOSE_TRANSACTION_ACK & "0000001");
+		--write("000000", OFF & CONF_CLOSE_TRANSACTION_ACK & "0000001");
 		--------------------------------------------------------------------------------------------------------------
-		-- TESTBENCH PROGRAM N. 3 - SHA CORE TESTING - POLLING MODE (BE SURE THAT work.SHA256_PACKAGE.all IS DECLARED)
-		--------------------------------------------------------------------------------------------------------------
-		--write("000000", OPCODE_VOID & CONF_OPEN_TRANSACTION_POLMODE & "0000001");
-		---- hash
-		--write("000001", x"6A09");
-		--write("000010", x"E667");
-		--write("000011", x"BB67");
-		--write("000100", x"AE85");
-		--write("000101", x"3C6E");
-		--write("000110", x"F372");
-		--write("000111", x"A54F");
-		--write("001000", x"F53A");
-		--write("001001", x"510E");
-		--write("001010", x"527F");
-		--write("001011", x"9B05");
-		--write("001100", x"688C");
-		--write("001101", x"1F83");
-		--write("001110", x"D9AB");
-		--write("001111", x"5BE0");
-		--write("010000", x"CD19");
-		---- message
-		--write("010001", x"BFA9");
-		--write("010010", x"A9E7");
-		--write("010011", x"752F");
-		--write("010100", x"713E");
-		--write("010101", x"66EE");
-		--write("010110", x"4FAB");
-		--write("010111", x"4115");
-		--write("011000", x"49CF");
-		--write("011001", x"5FC3");
-		--write("011010", x"1F82");
-		--write("011011", x"7CD9");
-		--write("011100", x"7CB0");
-		--write("011101", x"73E6");
-		--write("011110", x"B988");
-		--write("011111", x"029A");
-		--write("100000", x"BC41");
-		--write("100001", x"4491");
-		--write("100010", x"D52B");
-		--write("100011", x"9620");
-		--write("100100", x"93C9");
-		--write("100101", x"77C8");
-		--write("100110", x"FA3C");
-		--write("100111", x"97E8");
-		--write("101000", x"3E2D");
-		--write("101001", x"E081");
-		--write("101010", x"96D1");
-		--write("101011", x"C91E");
-		--write("101100", x"7AAE");
-		--write("101101", x"4EBC");
-		--write("101110", x"686B");
-		--write("101111", x"6E55");
-		--write("110000", x"BA98");
-		---- reading results
-		--write("111111", x"0000");
-		--while result = x"0000" loop
-		--	read("111111");
-		--end loop;
-		--write("000000", OPCODE_VOID & CONF_CLOSE_TRANSACTION_POLMODE & "0000001");
-		--------------------------------------------------------------------------------------------------------------
-		-- TESTBENCH PROGRAM N. 4 - SHA CORE TESTING - INTERRUPT MODE (BE SURE THAT work.SHA256_PACKAGE.all IS DECLARED)
-		--------------------------------------------------------------------------------------------------------------
-		write("000000", OPCODE_VOID & CONF_OPEN_TRANSACTION_INTMODE & "0000001");
-		--hash
-		write("000001", x"6A09");
-		write("000010", x"E667");
-		write("000011", x"BB67");
-		write("000100", x"AE85");
-		write("000101", x"3C6E");
-		write("000110", x"F372");
-		write("000111", x"A54F");
-		write("001000", x"F53A");
-		write("001001", x"510E");
-		write("001010", x"527F");
-		write("001011", x"9B05");
-		write("001100", x"688C");
-		write("001101", x"1F83");
-		write("001110", x"D9AB");
-		write("001111", x"5BE0");
-		write("010000", x"CD19");
-		-- message
-		write("010001", x"BFA9");
-		write("010010", x"A9E7");
-		write("010011", x"752F");
-		write("010100", x"713E");
-		write("010101", x"66EE");
-		write("010110", x"4FAB");
-		write("010111", x"4115");
-		write("011000", x"49CF");
-		write("011001", x"5FC3");
-		write("011010", x"1F82");
-		write("011011", x"7CD9");
-		write("011100", x"7CB0");
-		write("011101", x"73E6");
-		write("011110", x"B988");
-		write("011111", x"029A");
-		write("100000", x"BC41");
-		write("100001", x"4491");
-		write("100010", x"D52B");
-		write("100011", x"9620");
-		write("100100", x"93C9");
-		write("100101", x"77C8");
-		write("100110", x"FA3C");
-		write("100111", x"97E8");
-		write("101000", x"3E2D");
-		write("101001", x"E081");
-		write("101010", x"96D1");
-		write("101011", x"C91E");
-		write("101100", x"7AAE");
-		write("101101", x"4EBC");
-		write("101110", x"686B");
-		write("101111", x"6E55");
-		write("110000", x"BA98");
-		write("000000", OPCODE_VOID & CONF_CLOSE_TRANSACTION_INTMODE & "0000001");
-		wait until rising_edge(interrupt);
-		read("000000");
-		write("000000", OPCODE_VOID & CONF_OPEN_TRANSACTION_ACK & "0000001");
-		-- let the core necessary time for writing outputs and then read
-		wait for 60*HCLK_PERIOD; 
-		read("000001");
-		read("000010");
-		read("000011");
-		read("000100");
-		read("000101");
-		read("000110");
-		read("000111");
-		read("001000");
-		read("001001");
-		read("001010");
-		read("001011");
-		read("001100");
-		read("001101");
-		read("001110");
-		read("001111");
-		read("010000");
-		write("000000", OPCODE_VOID & CONF_CLOSE_TRANSACTION_ACK & "0000001");
-		--------------------------------------------------------------------------------------------------------------
-
 		wait;
 		
 	end process;

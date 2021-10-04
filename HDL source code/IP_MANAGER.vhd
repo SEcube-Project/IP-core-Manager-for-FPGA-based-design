@@ -3,7 +3,7 @@
 --  * Description        : IP Manager behavioral description
 --  ******************************************************************************
 --  *
---  * Copyright � 2016-present Blu5 Group <https://www.blu5group.com>
+--  * Copyright(c) 2016-present Blu5 Group <https://www.blu5group.com>
 --  *
 --  * This library is free software; you can redistribute it and/or
 --  * modify it under the terms of the GNU Lesser General Public
@@ -20,10 +20,17 @@
 --  *
 --  ******************************************************************************
 
+-- Version 1.1: Leonardo Izzi
+-- Design splitted in 2 processes to distinguish registers from signal
+-- Removed unused logic in IDLE state
+-- Added states to reduce critical path's length
+-- General area and timing optimizations
+
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 use work.CONSTANTS.all;
+use work.math_pack.all;
 
 entity IP_MANAGER is
 	port(	
@@ -58,280 +65,311 @@ entity IP_MANAGER is
 end entity IP_MANAGER;
 
 architecture BEHAVIOURAL of IP_MANAGER is
-	
+	component prio_enc is
+		generic (
+			-- input bit size
+			N: integer := 4;
+			--output bit size
+			M: integer := 2
+		);
+		port (
+			x: in std_logic_vector(N-1 downto 0);
+			o: out std_logic_vector(M-1 downto 0)
+		);
+	end component prio_enc;
+
 	-- STATE OF THE INTERNAL FSM
-	type ip_manager_state_type is (IDLE, 
+	type ip_manager_state_type is (IDLE,
+								   SERVE_ERROR,
+								   WAIT_ERROR_ACK,
+								   SERVE_IRQ,
+								   SERVE_ACK,
+								   SERVE_TR,
 								   MULTIPLEXING,
 								   IRQ_FORWARDING,
 								   ERROR_SIGNALING,
 								   ERROR_SIGNALING_DONE
 	);
-	signal state : ip_manager_state_type;
+
+	-- Determine the size of the registers
+	-- It must be at least 2 bits to avoid Lattice complaints about 0 downto 0 vectors 
+	constant NUM_IPS_WIDTH : integer := n_bits(max(NUM_IPS, 2));
+
+	-- used for comparison purposes
+	constant max_ips : unsigned(NUM_IPS_WIDTH-1 downto 0) := to_unsigned(NUM_IPS, NUM_IPS_WIDTH);
+
+	-- make sure this is set to the biggest constant value!!!!
+	constant ZERO_SIZE : integer := DATA_WIDTH;
 	
-	-- INTERNAL REGISTER OF THE ACTIVE IP (0 IF THE MANAGER ITSELF)
-	signal active_ip : integer; 	
+	constant zeros : std_logic_vector(ZERO_SIZE-1 downto 0) := (others => '0');  
+
+	signal curr_state, next_state : ip_manager_state_type;
+	
+	--If curr_active_ip send to the Data Buffer IP data, otherwise send the IP manager data 
+	signal curr_active_ip, next_active_ip : std_logic;
+	
+	-- Register containing the ID of the active IP 
+	signal curr_ip_idx, next_ip_idx : std_logic_vector(NUM_IPS_WIDTH-1 downto 0);
+
+	-- Internal register to store the address written in row_0
+	signal curr_row0_addr, next_row0_addr: std_logic_vector(IPADDR_POS-1 downto 0);
 	
 	-- OUTPUTS TO BUFFER when controlled directly by the manager (see assignment out of the process)
 	signal buf_data_out_man : std_logic_vector(DATA_WIDTH-1 downto 0);
-    signal buf_addr_man     : std_logic_vector(ADD_WIDTH-1 downto 0);
-	signal buf_rw_man       : std_logic;
-    signal buf_enable_man   : std_logic;
+    signal buf_addr_man : std_logic_vector(ADD_WIDTH-1 downto 0);
+	signal buf_rw_man : std_logic;
+    signal buf_enable_man : std_logic;
     
-    -- INTERNAL SIGNAL TO SAVE THE ID OF THE FAULTY IP
-	signal faulty_ipaddress : integer;
-   	
-   	-- INTERNAL SIGNAL TO BRING FROM ONE STATE TO ANOTHER THE OPCODE OF THE CONTROL WORD
-   	signal opcode : std_logic_vector(OPCODE_SIZE-1 downto 0);
-   	
-   	-- INTERNAL SIGNAL TO BRING FROM ONE STATE TO ANOTHER THE INTERRUPT/POLLING BIT
-   	signal i_p : std_logic;
-   	
-   	-- INTERNAL FF TO SEE WHETHER THE PRESENT ERRORS HAVE BEEN COMMUNICATED TO THE CPU
-   	signal signaled_errors : std_logic_vector(NUM_IPS-1 downto 0);
-   	
-   	-- INTERNAL FF TO SEE WHETHER THE PRESENT INTERRUPT REQUESTS HAVE BEEN COMMUNICATED TO THE CPU
-   	signal signaled_interrupts : std_logic_vector(NUM_IPS-1 downto 0);
+    -- Internal register to save the ID of an IP signaling an error or an interrupt
+	signal curr_signaling_ipaddress, next_signaling_ipaddress : std_logic_vector(NUM_IPS_WIDTH-1 downto 0);
 	
-     
-begin
-	
-	
-	-- BEHAVIORAL PROCESS
-	process (clock)
-		-- INTERNAL VARIABLE TO TEMPORARY STORE THE ADDRESS OF AN IP 
-   		variable ipaddress : integer;
-   		-- INTERNAL FLAG TO SIGNAL IF THE INTERRUPT SIGNAL FOR AN IP CORE REQUEST HAS BEEN ASSERTED
-   		variable interrupt_raised : boolean;
-   		-- INTERNAL FLAG TO SIGNAL IF THE INTERRUPT SIGNAL FOR AN ERROR SIGNALING HAS BEEN ASSERTED
-   		variable error_raised : boolean;
-	begin 
-		if(rising_edge(clock)) then 
-			-- synchronous reset
-			if(reset = '1') then                   			
-				interrupt       	<= '0';
-				-- BUFFER INTERFACE
-				buf_data_out_man    <= (others => '0');
-				buf_addr_man        <= (others => '0');
-				buf_enable_man      <= '0';				
-				buf_rw_man          <= '0';
-				-- IP INTERFACE                      
-				opcode_ip			<= (others => (others => '0'));
-				enable_ip 			<= (others => '0');  
-				ack_ip 	        	<= (others => '0');
-				-- INTERNALS
-				active_ip        	<= 0;
-				state			 	<= IDLE; 
-				ipaddress 		 	:= 0;
-				interrupt_raised    := false;
-				error_raised		:= false;
-				faulty_ipaddress    <= 0;
-				opcode			 	<= (others => '0');
-				i_p				 	<= '0';
-				signaled_errors  	<= (others => '0');
-				signaled_interrupts <= (others => '0');
-			else
-				case state is
-					when IDLE =>
-						-- generic clock cycle, no reset, not doing anything else
-						-- cases considered are, in order of importance:
-						--		signaling an error 
-						--		forwarding interrupt from the cores
-						-- 		serving the CPU acknowledgment
-						--		accepting the CPU request of open transaction
-						-- elsif statement was used to mutually exclude cases
-						-- when none of these cases, remains in IDLE state
-						-- IDLE state is characterized by the fact that all is in a "quiescent state": no valid values for any signal
-						buf_data_out_man 		<= (others => '0');
-						buf_addr_man     		<= (others => '0');
-						buf_enable_man   		<= '0';				
-						buf_rw_man       		<= '0';                    
-						opcode_ip		 		<= (others => (others => '0'));
-						int_pol_ip		 		<= (others => '0');
-						enable_ip 		 		<= (others => '0');  
-						ack_ip 	         		<= (others => '0');
-						active_ip        		<= 0;
-						state			 		<= IDLE; 
-						ipaddress 		 		:= 0;
-						opcode			 		<= (others => '0');
-						i_p				 		<= '0';
-						-- flag of interrupt request or error signaling which has been acked can be cleared 
-						for i in 0 to NUM_IPS-1 loop
-							if(error_ip(i) = '0' and signaled_errors(i) = '1') then
-								signaled_errors(i) <= '0';
-							end if;
-							if(interrupt_ip(i) = '0' and signaled_interrupts(i) = '1') then
-								signaled_interrupts(i) <= '0';
-							end if;
-						end loop;
-						-- CASE: AN ERROR SIGNAL ARRIVES
-						-- if there is any IP that raised the error signal and no transactions are active
-						if(unsigned(error_ip and not(signaled_errors)) > 0 and (ne1 = '1' or row_0(B_E_POS) = '0')) then
-							-- there are 2 possible cases:
-							-- 1) the interrupt is not raised and then I can proceed for the signaling of this error
-							if(error_raised = false) then
-								for i in 0 to NUM_IPS-1 loop
-									exit when error_raised = true;	
-									-- the IP error must be not already signaled  
-									if(error_ip(i) = '1' and signaled_errors(i) = '0') then
-									-- if match, raise the request and exit from the loop
-									-- it is the manager itself that interrupts the CPU in this case
-										buf_enable_man       <= '1';
-										buf_rw_man 	         <= '1';
-										buf_addr_man         <= (others => '0');
-										buf_data_out_man   	 <= "000000000" & std_logic_vector(to_unsigned(0, IPADDR_SIZE)); -- it is me
-										signaled_errors(i) 	 <= '1';
-										faulty_ipaddress     <= i+1;
-										state 			     <= IRQ_FORWARDING;
-										-- if any interrupt request was present, it is preempted
-										interrupt_raised 	:= false;
-										signaled_interrupts <= (others => '0');
-										-- break the loop
-										error_raised   := true;
-									end if;
-								end loop;
-							-- 2) the interrupt is raised, and so I have to wait for my turn, so I do nothing
-							end if;	
-						-- CASE: AN INTERRUPT REQUEST ARRIVES
-						-- if no errors, no transactions and there is any IP that raised the interrupt signal 
-						elsif(unsigned(interrupt_ip and not(signaled_interrupts)) > 0 and (ne1 = '1' or row_0(B_E_POS) = '0') and error_raised = false) then
-							-- there are 2 possible cases:
-							-- 1) the interrupt is not raised and then I can proceed in forwarding the request	
-							if(interrupt_raised = false) then				
-								-- scan all the IPs in order of priority
-								for i in 0 to NUM_IPS-1 loop
-									exit when interrupt_raised = true;
-									if(interrupt_ip(i) = '1') then
-										-- if match, raise the request and exit from the loop
-										-- set signals to write in the buffer the interrupting IP ID in row0
-										buf_enable_man   		 <= '1';
-										buf_rw_man       		 <= '1';
-										buf_addr_man     		 <= (others => '0');
-										buf_data_out_man 		 <= "000000000" & std_logic_vector(to_unsigned(i+1, IPADDR_SIZE));
-										signaled_interrupts(i)   <= '1';
-										state 			 		 <= IRQ_FORWARDING;
-										-- break the loop
-										interrupt_raised := true;
-									end if;
-								end loop;
-							-- 2) the interrupt is raised, and so I have to wait for my turn, so I do nothing
-							end if;
-						-- CASE: THE CPU SERVES AN ACKNOWLEDGMENT FROM THE CPU
-						-- if no transaction is active, then enable the communication with the interrupting IP, acknowledging it
-						elsif(row_0(B_E_POS) = '1' and row_0(ACK_POS) = '1' and active_ip = 0) then
-							interrupt <= '0';
-							ipaddress := to_integer(unsigned(row_0(IPADDR_POS downto 0)));
-							if(ipaddress > 0 and ipaddress <= NUM_IPS) then
-								interrupt_raised 	   := false;	
-								enable_ip(ipaddress-1) <= '1';
-								ack_ip(ipaddress-1)    <= '1';
-								active_ip 			   <= ipaddress;
-								state				   <= MULTIPLEXING;
-							-- if the manager itself is acked, means that the CPU is serving an error signaling
-							elsif(ipaddress = 0) then
-								-- take control of the signals to the buffer by setting active_ip to 0
-								-- write in row1 the address of the faulty IP
-								error_raised	 := false;
-								enable_ip 		 <= (others => '0');
-								active_ip 		 <= 0;
-								buf_enable_man 	 <= '1';
-								buf_rw_man 		 <= '1';
-								buf_addr_man 	 <= std_logic_vector(to_unsigned(1, ADD_WIDTH));
-								buf_data_out_man <= "000000000" & std_logic_vector(to_unsigned(faulty_ipaddress, IPADDR_SIZE));
-								state 			 <= ERROR_SIGNALING;
-							end if;
-						-- CASE: OPENING A TRANSACTION TO START TALKING WITH AN IP (NO INTERRUPT SERVING)
-						-- if the CPU want to start a transaction 
-						-- and no transactions are currently active and no interrupt requests are served, then it can be opened
-						elsif(row_0(B_E_POS) = '1' and row_0(ACK_POS) = '0' and active_ip = 0) then
-							-- if the address is referred to an existing IP core, then enable that IP
-							ipaddress := to_integer(unsigned(row_0(IPADDR_POS downto 0)));
-							if(ipaddress > 0 and ipaddress <= NUM_IPS) then
-								enable_ip(ipaddress-1)  <= '1';
-								active_ip 			    <= ipaddress;
-								opcode_ip(ipaddress-1)  <= row_0(DATA_WIDTH-1 downto DATA_WIDTH-6);
-								int_pol_ip(ipaddress-1) <= row_0(I_P_POS);
-								state					<= MULTIPLEXING;
-							-- else, address is out of range so do nothing
-							else null; 	
-							end if;
-						-- NO MORE CASES ARE CONSIDERED
-						end if;
-					
-					
-					when MULTIPLEXING =>
-						-- no need of assigning signals, they are already managed by the statements at the bottom
-						-- when the transaction is ended, the B/E bit goes to 0
-						if(row_0(B_E_POS) = '0') then
-							-- disable that IP, take again control of all signals and go to IDLE
-							active_ip		 <= 0;
-							buf_data_out_man <= (others => '0');
-							buf_addr_man     <= (others => '0');
-							buf_enable_man   <= '0';				
-							buf_rw_man       <= '0';                       
-							opcode_ip		 <= (others => (others => '0'));
-							int_pol_ip		 <= (others => '0');
-							enable_ip 		 <= (others => '0');  
-							ack_ip 	         <= (others => '0');
-							state 			 <= IDLE;
-						else
-							-- communication not ended yet
-							state 			 <= MULTIPLEXING;
-						end if;
-						
-					when IRQ_FORWARDING =>
-						interrupt		 <= '1';
-						buf_enable_man   <= '0';
-						buf_rw_man       <= '0';
-						buf_addr_man     <= (others => '0');
-						buf_data_out_man <= (others => '0');
-						state 			 <= IDLE;
-					
-					when ERROR_SIGNALING =>
-						buf_enable_man   				  <= '0';
-						buf_rw_man       				  <= '0';
-						buf_addr_man     				  <= (others => '0');
-						buf_data_out_man 		          <= (others => '0');
-						state 			 				  <= ERROR_SIGNALING_DONE;
-							
-					when ERROR_SIGNALING_DONE =>
-						-- this idleness state is reached when the manager has communicated to the CPU the ID of the core in error
-						-- simply turn off all signals and wait for the transaction to be closed
-						buf_data_out_man <= (others => '0');
-						buf_addr_man     <= (others => '0');
-						buf_enable_man   <= '0';				
-						buf_rw_man       <= '0';                    
-						opcode_ip		 <= (others => (others => '0'));
-						int_pol_ip		 <= (others => '0');
-						enable_ip 		 <= (others => '0');  
-						ack_ip 	         <= (others => '0');
-						if(row_0(B_E_POS) = '0') then
-							state <= IDLE;
-						else
-							state <= ERROR_SIGNALING_DONE;
-						end if;
-						
-					when others => null;
-				end case;
-			end if;
-		end if;
-	end process;
-	
-	-- MULTIPLEXING INTERFACE BETWEEN IP AND BUFFER (DEPENDING ON active_ip VALUE) 
-	buf_data_out <= data_in_ip(active_ip-1)    when active_ip > 0 else buf_data_out_man;
-	buf_addr 	 <= addr_ip(active_ip-1) 	   when active_ip > 0 else buf_addr_man;
-	buf_rw 		 <= rw_ip(active_ip-1) 		   when active_ip > 0 else buf_rw_man;
-	buf_enable 	 <= buf_enable_ip(active_ip-1) when active_ip > 0 else buf_enable_man;
+	-- Internal signal representing the index of the IP reporting an error
+    signal error_ip_num: std_logic_vector(NUM_IPS_WIDTH-1 downto 0);
 
-	process(active_ip, buf_data_in, cpu_read_completed, cpu_write_completed)
+    -- Internal signal representing the index of the IP raising an interrupt
+    signal interrupt_ip_num: std_logic_vector(NUM_IPS_WIDTH-1 downto 0);
+
+    -- Internal register used to not raise errors repeatedly before they have been ACKed.
+    signal curr_error_raised, next_error_raised: std_logic;
+
+    -- Internal register used to not raise interrupts repeatedly.
+    signal curr_interrupt_raised, next_interrupt_raised: std_logic;
+
+    -- Register maintaining the state of the interrupt line
+    signal curr_interrupt, next_interrupt: std_logic;
+
+    -- Internal signals used to store row0 configuration
+    signal curr_addr_ip, next_addr_ip: std_logic_vector(ADD_WIDTH-1 downto 0);
+    signal curr_opcode_ip, next_opcode_ip: std_logic_vector(OPCODE_SIZE-1 downto 0);
+    signal curr_int_pol_ip, next_int_pol_ip: std_logic;
+    signal curr_ack_ip, next_ack_ip: std_logic;
+
+
+begin
+	error_prio_enc: prio_enc
+		generic map (
+			N => NUM_IPS,
+			M => NUM_IPS_WIDTH
+		)
+		port map (
+			x => error_ip,
+			o => error_ip_num
+		);
+
+	interrupt_prio_enc: prio_enc
+		generic map (
+			N => NUM_IPS,
+			M => NUM_IPS_WIDTH
+		)
+		port map (
+			x => interrupt_ip,
+			o => interrupt_ip_num
+		);
+
+	state_reg: process(clock)
 	begin
-		data_out_ip 	       <= (others => (others => '0'));
-		cpu_read_completed_ip  <= (others => '0');
-		cpu_write_completed_ip <= (others => '0');
-		if(active_ip > 0) then
-			data_out_ip(active_ip-1) 		    <= buf_data_in;
-			cpu_read_completed_ip(active_ip-1)  <= cpu_read_completed; 
-			cpu_write_completed_ip(active_ip-1) <= cpu_write_completed; 
+		if (reset = '1') then
+			-- internals
+			curr_state <= IDLE;
+			curr_active_ip <= '0';
+			curr_ip_idx <= (others => '0');
+			curr_row0_addr <= (others => '0');
+			curr_signaling_ipaddress <= (others => '0');
+			curr_error_raised <= '0';
+			curr_interrupt_raised <= '0';
+			curr_interrupt <= '0';
+
+			curr_addr_ip <= (others => '0');
+			curr_opcode_ip <=(others => '0');
+			curr_int_pol_ip <= '0';
+			curr_ack_ip <= '0';
+		elsif (rising_edge(clock)) then
+			curr_state <= next_state;
+			curr_active_ip <= next_active_ip;
+			curr_ip_idx <= next_ip_idx;
+			curr_row0_addr <= next_row0_addr;
+			curr_signaling_ipaddress <= next_signaling_ipaddress;
+			curr_error_raised <= next_error_raised;
+			curr_interrupt_raised <= next_interrupt_raised;
+			curr_interrupt <= next_interrupt;
+
+			curr_addr_ip <= next_addr_ip;
+			curr_opcode_ip <= next_opcode_ip;
+			curr_int_pol_ip <= next_int_pol_ip;
+			curr_ack_ip <= next_ack_ip;
 		end if;
-	end process;
+	end process state_reg;
+
+	interrupt <= curr_interrupt;
+
+	-- multiplexing interface between IPs and Data Buffer
+	buf_data_out <= data_in_ip(to_integer(unsigned(curr_ip_idx))) when curr_active_ip /= '0' else buf_data_out_man;
+	buf_addr <= addr_ip(to_integer(unsigned(curr_ip_idx))) when curr_active_ip /= '0' else buf_addr_man;
+	buf_rw <= rw_ip(to_integer(unsigned(curr_ip_idx))) when curr_active_ip /= '0' else buf_rw_man;
+	buf_enable <= buf_enable_ip(to_integer(unsigned(curr_ip_idx))) when curr_active_ip /= '0' else buf_enable_man;
 	
+	comblogic: process(curr_state, curr_active_ip, curr_ip_idx, curr_row0_addr, curr_signaling_ipaddress,
+					   curr_error_raised, curr_interrupt_raised, curr_interrupt,
+					   curr_opcode_ip, curr_int_pol_ip, curr_ack_ip,
+					   ne1,
+					   buf_data_in, row_0, cpu_read_completed, cpu_write_completed,
+					   addr_ip, data_in_ip, rw_ip, buf_enable_ip, interrupt_ip, error_ip,
+					   error_ip_num, interrupt_ip_num)
+	begin
+		-- default assignments
+		next_state <= curr_state;
+		next_active_ip <= curr_active_ip;
+		next_ip_idx <= curr_ip_idx;
+		next_row0_addr <= curr_row0_addr;
+		next_signaling_ipaddress <= curr_signaling_ipaddress;
+		next_error_raised <= curr_error_raised;
+		next_interrupt_raised <= curr_interrupt_raised;
+
+		next_addr_ip <= curr_addr_ip;
+		next_opcode_ip <= curr_opcode_ip;
+		next_int_pol_ip <= curr_int_pol_ip;
+		next_ack_ip <= curr_ack_ip;
+
+		buf_data_out_man <= (others => '0');
+		buf_addr_man <= (others => '0');
+		buf_enable_man <= '0';
+		buf_rw_man <= '0';
+
+		next_interrupt <= curr_interrupt;
+
+		data_out_ip <= (others => (others => '0'));
+		opcode_ip <= (others => (others => '0'));
+		int_pol_ip <= (others => '0');
+		enable_ip <= (others => '0');
+		ack_ip <= (others => '0');
+		cpu_read_completed_ip <= (others => '0');
+		cpu_write_completed_ip <= (others => '0');
+
+		-- connect the IP to the data buffer
+		if (curr_active_ip /='0') then
+			data_out_ip(to_integer(unsigned(curr_ip_idx))) <= buf_data_in;
+			cpu_write_completed_ip(to_integer(unsigned(curr_ip_idx))) <= cpu_write_completed;
+			cpu_read_completed_ip(to_integer(unsigned(curr_ip_idx))) <= cpu_read_completed;
+		end if;
+
+		case (curr_state) is
+			-- The IDLE state considers, in order of importance:
+			--	error signaling
+			--	cores interrupt forwarding
+			--	CPU acknowledgement
+			-- CPU requests to open a transaction
+			when IDLE =>
+				next_opcode_ip <= (others => '0');
+				next_int_pol_ip <= '0';
+				next_ack_ip <= '0';
+				-- BIG CHANGE FROM THE OLD IP MAN: it used to or all the errors and interrupts requests. However, these operations never occurred due to a flag
+				-- canceling the operation. Hence, the code is simplified under the assumption that only one error/interrupt at the time can be served.
+
+				-- An error signal arrives
+				if (error_ip /= zeros(NUM_IPS-1 downto 0) and (ne1 = '1' or row_0(B_E_POS) = '0') and (curr_error_raised = '0')) then
+					next_state <= SERVE_ERROR;
+					next_signaling_ipaddress <= std_logic_vector(unsigned(error_ip_num) + 1);
+				-- An interrupt signal is received
+				elsif (interrupt_ip /= zeros(NUM_IPS-1 downto 0) and (ne1 = '1' or row_0(B_E_POS) = '0') and (curr_error_raised = '0') and (curr_interrupt_raised = '0')) then
+					next_state <= SERVE_IRQ;
+					next_signaling_ipaddress <= std_logic_vector(unsigned(interrupt_ip_num) + 1);
+				-- The CPU sends an ACK
+				elsif (row_0(B_E_POS) = '1' and row_0(ACK_POS) = '1') then
+					next_state <= SERVE_ACK;
+					next_row0_addr <= row_0(IPADDR_POS-1 downto 0);
+				-- The CPU is opening a transaction
+				elsif(row_0(B_E_POS) = '1' and row_0(ACK_POS) = '0') then
+					next_state <= SERVE_TR;
+					next_row0_addr <= row_0(IPADDR_POS-1 downto 0);
+				end if;
+
+			-- Send an interrupt to the CPU, communicating an error, and raise an error flag
+			when SERVE_ERROR => 
+				buf_enable_man <= '1';
+				buf_rw_man <= '1';
+				buf_addr_man <= (others => '0');
+				buf_data_out_man <= (others => '0');
+				next_interrupt <= '1';
+				next_error_raised <= '1';
+				-- if an interrupt was raised cancel it
+				next_interrupt_raised <= '0';
+				next_state <= IDLE;
+
+			-- Send an interrupt to the CPU, passing the address of the IP requesting it, and raise a flag to forbid other interrupt requests
+			when SERVE_IRQ => 
+				buf_enable_man <= '1';
+				buf_rw_man <= '1';
+				buf_addr_man <= (others => '0');
+				buf_data_out_man <= zeros(DATA_WIDTH - NUM_IPS_WIDTH - 1 downto 0)&curr_signaling_ipaddress;
+				next_interrupt <= '1';
+				next_interrupt_raised <= '1';
+				next_state <= IDLE;
+
+			-- Serve an ACK from the CPU
+			when SERVE_ACK => 
+				next_interrupt <= '0';
+
+				-- An IP is ACKed
+				if (curr_row0_addr /= zeros(IPADDR_POS-1 downto 0) and unsigned(curr_row0_addr) <= max_ips) then
+					next_interrupt_raised <= '0';
+
+					next_active_ip <= '1';
+					next_ip_idx <= std_logic_vector(unsigned(curr_row0_addr(NUM_IPS_WIDTH-1 downto 0)) - 1);
+					next_ack_ip <= '1';
+					next_state <= MULTIPLEXING;
+				-- if the manager itself is ACKed, it means that the CPU is serving an error signaling
+				elsif (curr_row0_addr = zeros(IPADDR_POS-1 downto 0)) then
+					next_error_raised <= '0';
+
+					next_active_ip <= '0';
+					buf_enable_man <= '1';
+					buf_rw_man <= '1';
+					buf_addr_man <= (0 => '1', others => '0');
+					buf_data_out_man <= zeros(DATA_WIDTH-NUM_IPS_WIDTH-1 downto 0)&curr_signaling_ipaddress;
+					next_state <= ERROR_SIGNALING;
+				end if;
+
+			-- Open a transaction
+			when SERVE_TR => 
+				if (curr_row0_addr /= zeros(IPADDR_POS-1 downto 0) and unsigned(curr_row0_addr) <= max_ips) then
+					next_active_ip <= '1';
+					next_ip_idx <= std_logic_vector(unsigned(curr_row0_addr(NUM_IPS_WIDTH-1 downto 0)) - 1);
+					next_opcode_ip <= row_0(OPCODE_START_POS-1 downto OPCODE_END_POS);
+					next_int_pol_ip <= row_0(I_P_POS);
+					next_state <= MULTIPLEXING;
+				end if;
+
+			when MULTIPLEXING => 
+				-- only control data must be multiplexed, data already is
+				if (row_0(B_E_POS) = '0') then
+					next_state <= IDLE;
+					next_active_ip <= '0';
+				end if;
+
+				-- propagate row0 conf to the IP
+				opcode_ip(to_integer(unsigned(curr_ip_idx))) <= curr_opcode_ip;
+				int_pol_ip(to_integer(unsigned(curr_ip_idx))) <= curr_int_pol_ip;
+				enable_ip(to_integer(unsigned(curr_ip_idx))) <= '1';
+				ack_ip(to_integer(unsigned(curr_ip_idx))) <= curr_ack_ip;
+
+			-- Signal to the CPU the IP raising the error
+			when ERROR_SIGNALING => 
+				buf_enable_man 	 <= '1';
+				buf_rw_man <= '1';
+				buf_addr_man <= (0 => '1', others => '0');
+				buf_data_out_man <= zeros(DATA_WIDTH - NUM_IPS_WIDTH -1 downto 0)&curr_signaling_ipaddress;
+				next_state <= ERROR_SIGNALING_DONE;
+
+			-- this idleness state is reached when the manager has communicated to the CPU the ID of the core in error
+			-- simply turn off all signals (which is the default behavior) and wait for the transaction to be closed
+			when ERROR_SIGNALING_DONE => 
+				if (row_0(B_E_POS) = '0') then
+					next_state <= IDLE;
+				end if;
+
+			--... why are we here?
+			when others =>
+				next_state <= IDLE;
+		end case;
+	end process comblogic;
 end architecture;

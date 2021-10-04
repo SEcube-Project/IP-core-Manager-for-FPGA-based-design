@@ -23,6 +23,16 @@
   ******************************************************************************
   */
 
+/*
+ * v1.1 Leonardo Izzi
+ * - Changed FMC initialization values using constants defined in the header file
+ * to ease customization
+ * - Changed default frequency from 60 MHz to 90 MHz
+ *
+ * IMPORTANT: if you need to change FPGA frequency you still have to do it manually
+ * at the end of FPGA_IPM_init()
+ */
+
 #include "Fpgaipm.h"
 
 #include "stm32f4xx.h"
@@ -79,9 +89,9 @@ FPGA_IPM_BOOLEAN FPGA_IPM_init() {
 
 	// Timing (Read)
 	Timing.AccessMode = FMC_ACCESS_MODE_A;
-	Timing.AddressSetupTime = 6;
+	Timing.AddressSetupTime = ADDSET / FPGA_CLK_DIV;
 	Timing.AddressHoldTime = 0;
-	Timing.DataSetupTime = 6;
+	Timing.DataSetupTime = DATAST / FPGA_CLK_DIV;
 	Timing.BusTurnAroundDuration = 0; // don't care
 	Timing.CLKDivision = 10; // don't care
 	Timing.DataLatency = 2; // don't care
@@ -108,9 +118,9 @@ FPGA_IPM_BOOLEAN FPGA_IPM_init() {
 
 	// ExtTiming (Write)
 	ExtTiming.AccessMode = FMC_ACCESS_MODE_A;
-	ExtTiming.AddressSetupTime = 6;
+	ExtTiming.AddressSetupTime = ADDSET / FPGA_CLK_DIV;
 	ExtTiming.AddressHoldTime = 0;
-	ExtTiming.DataSetupTime = 6;
+	ExtTiming.DataSetupTime = DATAST / FPGA_CLK_DIV;
 	ExtTiming.BusTurnAroundDuration = 0; // don't care
 	ExtTiming.CLKDivision = 10; // don't care
 	ExtTiming.DataLatency = 2; // don't care
@@ -215,8 +225,8 @@ FPGA_IPM_BOOLEAN FPGA_IPM_init() {
 	GPIO_InitStruct.Alternate = GPIO_AF0_MCO;
 	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 	  
-	/* Set MCO1 output = PLLCLK with prescaler 3 = 180MHz / 3 = 60MHz */
-	__HAL_RCC_MCO1_CONFIG(RCC_MCO1SOURCE_PLLCLK, RCC_MCODIV_3);
+	/* Set MCO1 output = PLLCLK with prescaler 2 = 180MHz / 2 = 90 MHz */
+	__HAL_RCC_MCO1_CONFIG(RCC_MCO1SOURCE_PLLCLK, RCC_MCODIV_2);
 
 	// INIT SEMAPHORE
 	sem = 1;
@@ -333,7 +343,7 @@ static void readRow0() {
 
 void EXTI9_5_IRQHandler(void) {
 	/* Make sure that interrupt flag is set */
-    if (EXTI_GetITStatus(EXTI_Line9) != RESET) {
+    if (EXTI_GetITStatus(EXTI_Line9) != 0) {
         /* Do your stuff when PA9 is changed */
         /* switch among different cores and call the specific ISR for everyone of them */
     	readRow0();

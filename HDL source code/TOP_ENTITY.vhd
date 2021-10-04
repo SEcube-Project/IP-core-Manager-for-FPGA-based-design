@@ -3,7 +3,7 @@
 --  * Description        : Top FPGA entity for the IP Manager architecture
 --  ******************************************************************************
 --  *
---  * Copyright � 2016-present Blu5 Group <https://www.blu5group.com>
+--  * Copyright(c) 2016-present Blu5 Group <https://www.blu5group.com>
 --  *
 --  * This library is free software; you can redistribute it and/or
 --  * modify it under the terms of the GNU Lesser General Public
@@ -20,6 +20,8 @@
 --  *
 --  ******************************************************************************
 
+-- Version 1.1: Leonardo Izzi
+-- Changed ADDSET and DATAST values
 library ieee;
 use ieee.std_logic_1164.all;
 use work.CONSTANTS.all;
@@ -27,8 +29,8 @@ use work.CONSTANTS.all;
 --IMPORTANT: The number of IPs must be written in the file CONSTANTS.vhd. The IPs core must be then connected at the end of this file
 entity TOP_ENTITY is
 	generic (
-		ADDSET : integer := 2;
-		DATAST : integer := 2
+		ADDSET : integer := 3;
+		DATAST : integer := 3
 	);
 	port(	
 			cpu_fpga_bus_a		: in std_logic_vector(ADD_WIDTH-1 downto 0);
@@ -69,7 +71,7 @@ architecture STRUCTURAL of TOP_ENTITY is
 	signal	error_ip   				 : std_logic_vector(NUM_IPS-1 downto 0);    
 	signal 	cpu_read_completed_ip    : std_logic_vector(NUM_IPS-1 downto 0);
 	signal 	cpu_write_completed_ip   : std_logic_vector(NUM_IPS-1 downto 0);
-
+	
 begin
 
 	fpga_gpio_leds <= (others => '1');
@@ -77,7 +79,8 @@ begin
 	data_buff: entity work.DATA_BUFFER
 		generic map(
 			ADDSET => ADDSET,
-			DATAST => DATAST
+			DATAST => DATAST,
+			RAM_CPU_WRITE => 2
 		)
 		port map(
 			clock               => cpu_fpga_clk,
@@ -132,45 +135,65 @@ begin
 	-- The port map is the same for every IP, only the indexes must be changed. 
 	
 	
-	sha_core: entity work.SHA256_TOP
-		port map(
-			CLK 			=> cpu_fpga_clk,
-			RST 			=> cpu_fpga_rst,
-			EN 				=> enable_ip(0),
-			OPCODE 			=> opcode_ip(0),
-			ACK 			=> ack_ip(0),
-			I_P             => int_pol_ip(0),
-			WRITE_COMPLETED => cpu_write_completed_ip(0),
-			READ_COMPLETED  => cpu_read_completed_ip(0),
-			BUFF_EN 		=> buf_enable_ip(0),
-			BUFF_RW 		=> rw_ip(0),
-			ADDRESS 		=> addr_ip(0),
-			INTERRUPT 		=> interrupt_ip(0),
-			ERROR 			=> error_ip(0),
-			DATAIN 			=> ipm_to_ip_data(0),
-			DATAOUT 		=> ip_to_ipm_data(0)
-		); 
+	--aes_core: entity work.aes_ip
+	--	port map(
+	--		clk => cpu_fpga_clk,
+	--		rst => cpu_fpga_rst,
+	--		int_opcode => int_opcode,
+	--		en => enable_ip(0),
+	--		opcode => opcode_ip(0),
+	--		ack => ack_ip(0),
+	--		int_polling => int_pol_ip(0),
+	--		cpu_write_completed => cpu_write_completed_ip(0),
+	--		cpu_read_completed => cpu_read_completed_ip(0),
+	--		buf_en => buf_enable_ip(0),
+	--		buf_rw => rw_ip(0),
+	--		buf_addr => addr_ip(0),
+	--		int => interrupt_ip(0),
+	--		err => error_ip(0),
+	--		ipm_data_in => ipm_to_ip_data(0),
+	--		ipm_data_out => ip_to_ipm_data(0)
+	--	); 
+
+	--sha_core: entity work.SHA256_TOP
+	--	port map(
+	--		CLK 			=> cpu_fpga_clk,
+	--		RST 			=> cpu_fpga_rst,
+	--		EN 				=> enable_ip(0),
+	--		OPCODE 			=> opcode_ip(0),
+	--		ACK 			=> ack_ip(0),
+	--		I_P             => int_pol_ip(0),
+	--		WRITE_COMPLETED => cpu_write_completed_ip(0),
+	--		READ_COMPLETED  => cpu_read_completed_ip(0),
+	--		BUFF_EN 		=> buf_enable_ip(0),
+	--		BUFF_RW 		=> rw_ip(0),
+	--		ADDRESS 		=> addr_ip(0),
+	--		INTERRUPT 		=> interrupt_ip(0),
+	--		ERROR 			=> error_ip(0),
+	--		DATAIN 			=> ipm_to_ip_data(0),
+	--		DATAOUT 		=> ip_to_ipm_data(0)
+	--	); 
 	                               
 	
 
---	ip_exmp: entity work.IP_EXAMPLE
---		port map(
---			clock             => cpu_fpga_clk,
---			reset             => cpu_fpga_rst,
---			data_in           => ipm_to_ip_data(0),
---			opcode            => opcode_ip(0),
---			enable            => enable_ip(0),
---			ack               => ack_ip(0),
---			interrupt_polling => int_pol_ip(0),
---			data_out          => ip_to_ipm_data(0),
---			buffer_enable     => buf_enable_ip(0),
---			address           => addr_ip(0),
---			rw                => rw_ip(0),
---			interrupt         => interrupt_ip(0),
---			error             => error_ip(0),
---			write_completed   => cpu_write_completed_ip(0),
---			read_completed    => cpu_read_completed_ip(0)
---		);
+	ip_exmp: entity work.IP_EXAMPLE
+		port map(
+			clock             => cpu_fpga_clk,
+			reset             => cpu_fpga_rst,
+			data_in           => ipm_to_ip_data(0),
+			opcode            => opcode_ip(0),
+			enable            => enable_ip(0),
+			ack               => ack_ip(0),
+			interrupt_polling => int_pol_ip(0),
+			data_out          => ip_to_ipm_data(0),
+			buffer_enable     => buf_enable_ip(0),
+			address           => addr_ip(0),
+			rw                => rw_ip(0),
+			interrupt         => interrupt_ip(0),
+			error             => error_ip(0),
+			write_completed   => cpu_write_completed_ip(0),
+			read_completed    => cpu_read_completed_ip(0)
+		);
 		
 
 											

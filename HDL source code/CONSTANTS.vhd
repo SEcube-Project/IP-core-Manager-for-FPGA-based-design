@@ -3,7 +3,7 @@
 --  * Description        : Constants for the IP Manager architecture
 --  ******************************************************************************
 --  *
---  * Copyright � 2016-present Blu5 Group <https://www.blu5group.com>
+--  * Copyright(c) 2016-present Blu5 Group <https://www.blu5group.com>
 --  *
 --  * This library is free software; you can redistribute it and/or
 --  * modify it under the terms of the GNU Lesser General Public
@@ -20,6 +20,9 @@
 --  *
 --  ******************************************************************************
 
+-- Version 1.1: Leonardo Izzi
+-- Removed memory address size
+
 library IEEE;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
@@ -30,7 +33,6 @@ package CONSTANTS is
  	constant DATA_WIDTH	 : integer := 16;
 	constant ADD_WIDTH	 : integer := 6;
 	constant OPCODE_SIZE : integer := 6;
-	constant MEM_SIZE	 : integer := 64;
 	constant IPADDR_SIZE : integer := 7;
  	
 	constant NUM_IPS : integer := 1;
@@ -41,6 +43,8 @@ package CONSTANTS is
 	type opcode_array is array (NUM_IPS-1 downto 0) of std_logic_vector(OPCODE_SIZE-1 downto 0);
 	
 	-- CONTROL WORD FIELDS
+	constant OPCODE_START_POS : integer := 16;
+	constant OPCODE_END_POS : integer := 10; 
 	constant I_P_POS    : integer := 9;
 	constant ACK_POS	: integer := 8;	
 	constant B_E_POS    : integer := 7;

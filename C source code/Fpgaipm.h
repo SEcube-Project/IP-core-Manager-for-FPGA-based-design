@@ -23,6 +23,11 @@
   ******************************************************************************
   */
 
+/*
+ * v1.1 Leonardo Izzi
+ * - Added macros to simplify FMC customization
+ */
+
 #ifndef FPGAIPM_H_
 #define FPGAIPM_H_
 
@@ -55,6 +60,12 @@
 #define FPGA_IPM_ACK 			   0b0000000100000000u
 #define FPGA_IPM_INTERRUPT_MODE    0b0000001000000000u
 #define FPGA_IPM_SRAM_BASE_ADDR    0x60000000U
+
+// FPGA_IPM_init configuration
+#define ADDSET 6
+#define DATAST 6
+// This value is used to configure FMC timing, the actual frequency change must be done manually
+#define FPGA_CLK_DIV 2 // 90 MHz
 
 // public functions
 

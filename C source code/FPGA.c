@@ -1,35 +1,14 @@
-/**
-  ******************************************************************************
-  * File Name          : FPGA.c
-  * Description        : FPGA primitives
-  ******************************************************************************
-  *
-  * Copyright � 2016-present Blu5 Group <https://www.blu5group.com>
-  *
-  * This library is free software; you can redistribute it and/or
-  * modify it under the terms of the GNU Lesser General Public
-  * License as published by the Free Software Foundation; either
-  * version 3 of the License, or (at your option) any later version.
-  *
-  * This library is distributed in the hope that it will be useful,
-  * but WITHOUT ANY WARRANTY; without even the implied warranty of
-  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-  * Lesser General Public License for more details.
-  *
-  * You should have received a copy of the GNU Lesser General Public
-  * License along with this library; if not, see <https://www.gnu.org/licenses/>.
-  *
-  ******************************************************************************
-  */
-
 #include <stdint.h>
 #include "stm32f4xx_hal.h"
 #include "stm32f4xx.h"
 #include "FPGA.h"
 #include "TEST_FPGA.h"
 
+
+
 uint32_t g_iAlgoSize = 129857;
-uint32_t g_iDataSize = 202655;
+uint32_t g_iDataSize = 239515;
+
 
 // Lattice Cable Pins
 
@@ -77,6 +56,8 @@ uint32_t g_iDataSize = 202655;
 #define SHIFTIR    0x04
 #define SHIFTDR    0x05
 #define DRCAPTURE  0x06
+
+
 
 
 // VME Opcodes
@@ -523,7 +504,8 @@ int16_t ispProcessVME()
 				g_usLCOUNTSize = (int16_t)ispVMDataSize();
 
 #ifdef VME_DEBUG
-				printf( "MaxLoopCount %d\n", g_usLCOUNTSize );
+				printf( "MaxLoopCount %d
+", g_usLCOUNTSize );
 #endif
 				/*************************************************************
 				*                                                            *
@@ -1866,4 +1848,3 @@ void B5_FPGA_FpgaCpuGPIO (uint8_t gpioNum, GPIO_PinState set)
 			break;
 	}
 }
-
